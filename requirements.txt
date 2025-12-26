@@ -1,4 +1,5 @@
 streamlit
 flatlib
 geopy
+pyswisseph
 
