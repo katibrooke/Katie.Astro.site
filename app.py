@@ -8,7 +8,7 @@ from timezonefinder import TimezoneFinder
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-# --- КРАСИВЫЙ ДИЗАЙН ---
+# --- СТИЛИЗАЦИЯ ---
 st.markdown("""
     <style>
     .stApp { background-color: #fde2e4; }
@@ -59,51 +59,44 @@ def create_final_img(name, date_str, time_str, asc_info, data_list):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# --- ОСНОВНОЙ ИНТЕРФЕЙС ---
+# --- ИНТЕРФЕЙС ---
 st.title("✨ Звёздный калькулятор ✨")
-user_name = st.text_input("Имя ребенка", value="Мишель")
+user_name = st.text_input("Имя", value="Мишель")
 
 col1, col2 = st.columns(2)
 with col1:
-    # Выбор страны (Израиль и Россия в начале для удобства)
-    country_list = ["Israel", "Russia", "Ukraine", "Kazakhstan", "USA", "Germany", "France"]
-    country = st.selectbox("Выбирите страну", country_list)
-    city_query = st.text_input("Напишите город (English)", value="Rishon")
-
+    countries = ["Israel", "Russia", "Ukraine", "Kazakhstan", "USA", "Germany", "France"]
+    country = st.selectbox("Страна", countries)
+    city_query = st.text_input("Город (на английском)", value="Rishon")
 with col2:
-    d = st.date_input("Дата рождения", 
-                      value=datetime(2011, 9, 26),
-                      min_value=datetime(1900, 1, 1),
-                      max_value=datetime(2100, 12, 31))
-    t_in = st.text_input("Время рождения (например, 22:22)", value="22:22")
+    # УБРАНЫ ОГРАНИЧЕНИЯ ПО ДАТАМ
+    d = st.date_input("Дата рождения", value=datetime(2011, 9, 26))
+    t_in = st.text_input("Время рождения (ЧЧ:ММ)", value="22:22")
 
 # --- УМНЫЙ ПОИСК ГОРОДА ---
-selected_location = None
-
+selected_loc = None
 if city_query:
-    geolocator = Nominatim(user_agent="katy_doula_pro_app_v1")
-    # Ищем все похожие города в этой стране
-    locations = geolocator.geocode(f"{city_query}, {country}", exactly_one=False, limit=5, timeout=10)
-    
-    if locations:
-        st.write("### Пожалуйста, подтвердите город:")
-        # Создаем список понятных названий
-        options = {f"{loc.address}": loc for loc in locations}
-        selected_address = st.selectbox("Найденные варианты:", list(options.keys()))
-        selected_location = options[selected_address]
-    else:
-        st.error("Город не найден. Попробуйте написать только начало названия.")
+    try:
+        geolocator = Nominatim(user_agent="katy_astro_pro_v2")
+        locations = geolocator.geocode(f"{city_query}, {country}", exactly_one=False, limit=5, timeout=10)
+        if locations:
+            options = {loc.address: loc for loc in locations}
+            choice = st.selectbox("Выберите точный город из списка:", list(options.keys()))
+            selected_loc = options[choice]
+        else:
+            st.error("Город не найден. Попробуйте написать только начало названия.")
+    except:
+        st.warning("Сервис поиска городов подтормаживает, подождите секунду...")
 
-# --- КНОПКА РАСЧЕТА ---
-if st.button("Рассчитать и подготовить фото"):
-    if not selected_location:
-        st.warning("Сначала выберите город из списка выше!")
+# --- РАСЧЕТ ---
+if st.button("Рассчитать карту"):
+    if not selected_loc:
+        st.error("Пожалуйста, сначала выберите город из списка выше!")
     else:
         t_clean = re.sub(r'[^0-9:]', '', t_in.replace('.', ':')).strip()[:5]
         try:
             with st.spinner('Звезды выстраиваются в рисунок...'):
-                lat, lon = selected_location.latitude, selected_location.longitude
-                
+                lat, lon = selected_loc.latitude, selected_loc.longitude
                 tf = TimezoneFinder()
                 tz = pytz.timezone(tf.timezone_at(lng=lon, lat=lat))
                 dt_local = tz.localize(datetime(d.year, d.month, d.day, int(t_clean[:2]), int(t_clean[3:])))
@@ -122,7 +115,6 @@ if st.button("Рассчитать и подготовить фото"):
                 st.markdown(f'<div class="asc-card">🌟 {asc_txt}</div>', unsafe_allow_html=True)
 
                 res_list = []
-                # Планеты
                 for n, pid in {"Солнце": 0, "Луна": 1, "Меркурий": 2, "Венера": 3, "Марс": 4, "Юпитер": 5, "Сатурн": 6}.items():
                     lon_p = swe.calc_ut(jd, pid)[0][0]
                     h = get_h(lon_p, cusps)
@@ -130,7 +122,6 @@ if st.button("Рассчитать и подготовить фото"):
                     res_list.append(line)
                     st.markdown(f'<div class="result-card"><b>{line}</b></div>', unsafe_allow_html=True)
 
-                # Узлы
                 rahu = swe.calc_ut(jd, swe.MEAN_NODE)[0][0]
                 rh = get_h(rahu, cusps)
                 res_list.append(f"Сев. Узел (Раху): {int(rahu%30)}° {zod[int(rahu/30)]} в {rh} доме")
@@ -142,6 +133,6 @@ if st.button("Рассчитать и подготовить фото"):
                     st.markdown(f'<div class="result-card" style="border-left-color: #a6817b;"><b>{item}</b></div>', unsafe_allow_html=True)
 
                 img = create_final_img(user_name, d.strftime("%d.%m.%Y"), t_clean, asc_txt, res_list)
-                st.download_button("📸 Скачать карту в галерею", img, f"{user_name}_astro.png", "image/png")
-        except Exception as e:
+                st.download_button("📸 Сохранить карту в галерею", img, f"{user_name}_astro.png", "image/png")
+        except:
             st.error("Ошибка в формате времени. Напишите, например, 22:22")
