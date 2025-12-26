@@ -3,14 +3,29 @@ import swisseph as swe
 from datetime import datetime
 import pytz
 import re
-from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 from PIL import Image, ImageDraw, ImageFont
 import io
+import geonamescache
 import pycountry
 
-# --- 1. ПОЛНЫЙ СПИСОК СТРАН МИРА ---
-all_countries = sorted([country.name for country in pycountry.countries])
+# --- 1. ЗАГРУЗКА БАЗЫ (ОФФЛАЙН) ---
+gc = geonamescache.GeonamesCache()
+all_countries = sorted([c.name for c in pycountry.countries])
+
+# Функция для получения списка городов конкретной страны
+@st.cache_data
+def get_cities_by_country(country_name):
+    try:
+        # Получаем код страны (например, MD для Moldova)
+        c_code = pycountry.countries.get(name=country_name).alpha_2
+        # Берем все города из базы
+        cities = gc.get_cities()
+        # Фильтруем города по этой стране
+        country_cities = [cities[c]['name'] for c in cities if cities[c]['countrycode'] == c_code]
+        return sorted(list(set(country_cities)))
+    except:
+        return []
 
 # --- ДИЗАЙН ---
 st.markdown("""
@@ -35,7 +50,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- ФУНКЦИЯ РИСОВАНИЯ КАРТИНКИ ---
+# --- ГЕНЕРАЦИЯ КАРТИНКИ ---
 def create_final_img(name, date_str, time_str, asc_info, data_list):
     W, H = 750, 1150
     img = Image.new('RGB', (W, H), color='#fde2e4')
@@ -63,54 +78,51 @@ def create_final_img(name, date_str, time_str, asc_info, data_list):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# --- ИНТЕРФЕЙС САЙТА ---
+# --- ИНТЕРФЕЙС ---
 st.title("✨ Звёздный калькулятор ✨")
-user_name = st.text_input("Имя", value="Мишель")
+user_name = st.text_input("Имя ребенка", value="Мишель")
 
 col1, col2 = st.columns(2)
 with col1:
-    # ТЕПЕРЬ ТУТ ВСЕ СТРАНЫ МИРА
-    country = st.selectbox("1. Выберите страну", all_countries, index=all_countries.index("Moldova") if "Moldova" in all_countries else 0)
-    city_query = st.text_input("2. Введите город (на английском)", value="Chisinau")
+    # 1. Выбор страны (с галочкой)
+    country = st.selectbox("1. Выберите страну", all_countries, index=all_countries.index("Israel") if "Israel" in all_countries else 0)
+    
+    # 2. Получаем города этой страны
+    city_list = get_cities_by_country(country)
+    
+    # 3. Выбор города (ТА САМАЯ ГАЛОЧКА!)
+    if city_list:
+        city_selected = st.selectbox("2. Выберите город", city_list)
+    else:
+        city_selected = st.text_input("Город не найден в базе, введите вручную (English)")
+
 with col2:
     d = st.date_input("Дата рождения", value=datetime(2011, 9, 26), min_value=datetime(1900,1,1))
     t_in = st.text_input("Время (ЧЧ:ММ)", value="22:22")
 
-# --- ЛОГИКА ПОИСКА ГОРОДА ---
-if "found_locs" not in st.session_state:
-    st.session_state.found_locs = None
-
-if st.button("🔍 Найти город в этой стране"):
-    with st.spinner('Ищу город в международной базе...'):
-        geolocator = Nominatim(user_agent="katy_astro_global_v1")
-        try:
-            # Ищем город строго внутри выбранной страны
-            locs = geolocator.geocode(f"{city_query}, {country}", exactly_one=False, limit=5, timeout=15)
-            if locs:
-                st.session_state.found_locs = {loc.address: loc for loc in locs}
-            else:
-                st.error(f"Город '{city_query}' не найден в стране {country}. Попробуйте уточнить название.")
-                st.session_state.found_locs = None
-        except:
-            st.error("Сервис временно перегружен, попробуйте еще раз через 2 секунды.")
-
-# Выбор конкретного адреса из найденных
-selected_location = None
-if st.session_state.found_locs:
-    choice = st.selectbox("3. Подтвердите ваш город из списка:", list(st.session_state.found_locs.keys()))
-    selected_location = st.session_state.found_locs[choice]
-    st.success(f"Выбрано: {selected_location.address}")
-
 # --- РАСЧЕТ ---
-if selected_location:
-    if st.button("🔮 Рассчитать натальную карту"):
-        t_clean = re.sub(r'[^0-9:]', '', t_in.replace('.', ':')).strip()[:5]
+if st.button("🔮 Рассчитать и подготовить фото"):
+    if not city_selected:
+        st.error("Пожалуйста, выберите город!")
+    else:
         try:
             with st.spinner('Звезды выстраиваются в рисунок...'):
-                lat, lon = selected_location.latitude, selected_location.longitude
+                # Находим координаты выбранного города в нашей базе
+                cities = gc.get_cities()
+                # Ищем город по имени и стране
+                c_code = pycountry.countries.get(name=country).alpha_2
+                city_data = next(cities[c] for c in cities if cities[c]['name'] == city_selected and cities[c]['countrycode'] == c_code)
+                
+                lat, lon = city_data['latitude'], city_data['longitude']
                 tf = TimezoneFinder()
                 tz = pytz.timezone(tf.timezone_at(lng=lon, lat=lat))
-                dt_local = tz.localize(datetime(d.year, d.month, d.day, int(t_clean[:2]), int(t_clean[3:])))
+                
+                # Чистим время
+                t_nums = re.findall(r'\d+', t_in)
+                h, m = int(t_nums[0]), int(t_nums[1])
+                t_fmt = f"{h:02d}:{m:02d}"
+                
+                dt_local = tz.localize(datetime(d.year, d.month, d.day, h, m))
                 utc_dt = dt_local.astimezone(pytz.utc)
                 
                 jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour + utc_dt.minute/60)
@@ -126,7 +138,6 @@ if selected_location:
                 st.markdown(f'<div class="asc-card">🌟 {asc_txt}</div>', unsafe_allow_html=True)
 
                 res_list = []
-                # Планеты
                 for n, pid in {"Солнце": 0, "Луна": 1, "Меркурий": 2, "Венера": 3, "Марс": 4, "Юпитер": 5, "Сатурн": 6}.items():
                     lon_p = swe.calc_ut(jd, pid)[0][0]
                     h = get_h(lon_p, cusps)
@@ -134,7 +145,6 @@ if selected_location:
                     res_list.append(line)
                     st.markdown(f'<div class="result-card"><b>{line}</b></div>', unsafe_allow_html=True)
 
-                # Узлы
                 rahu = swe.calc_ut(jd, swe.MEAN_NODE)[0][0]
                 rh = get_h(rahu, cusps)
                 res_list.append(f"Сев. Узел (Раху): {int(rahu%30)}° {zod[int(rahu/30)]} в {rh} доме")
@@ -145,7 +155,7 @@ if selected_location:
                 for item in res_list[7:]:
                     st.markdown(f'<div class="result-card" style="border-left-color: #a6817b;"><b>{item}</b></div>', unsafe_allow_html=True)
 
-                img = create_final_img(user_name, d.strftime("%d.%m.%Y"), t_clean, asc_txt, res_list)
-                st.download_button("📸 Сохранить карту в галерею", img, f"{user_name}_astro.png", "image/png")
+                img = create_final_img(user_name, d.strftime("%d.%m.%Y"), t_fmt, asc_txt, res_list)
+                st.download_button("📸 Скачать карту в галерею", img, f"{user_name}_astro.png", "image/png")
         except:
-            st.error("Проверьте время! Оно должно быть в формате 22:22")
+            st.error("Проверьте время! Оно должно быть как 22:22")
