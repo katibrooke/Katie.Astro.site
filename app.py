@@ -8,21 +8,23 @@ from timezonefinder import TimezoneFinder
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-# --- КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ ---
-@st.cache_data(ttl=3600)
-def get_location_data(city_name):
+# --- УСКОРЕННЫЙ ПОИСК ГОРОДА ---
+@st.cache_data(ttl=86400) # Кэш на сутки
+def get_location_pro(city, country):
     try:
-        geolocator = Nominatim(user_agent="katy_astro_pro_doula_v1")
-        return geolocator.geocode(city_name, timeout=30)
+        # Уникальный агент для стабильной работы
+        geolocator = Nominatim(user_agent="katy_astro_unique_search_v2")
+        query = f"{city}, {country}"
+        return geolocator.geocode(query, timeout=30)
     except:
         return None
 
-@st.cache_data(ttl=3600)
-def get_timezone_name(lat, lon):
+@st.cache_data(ttl=86400)
+def get_tz_pro(lat, lon):
     tf = TimezoneFinder()
     return tf.timezone_at(lng=lon, lat=lat)
 
-# --- СТИЛИЗАЦИЯ САЙТА ---
+# --- ДИЗАЙН ---
 st.markdown("""
     <style>
     .stApp { background-color: #fde2e4; }
@@ -45,8 +47,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- ФУНКЦИЯ СОЗДАНИЯ КАРТИНКИ (W=750) ---
-def create_final_image(name, date_str, asc_info, planets_data, nodes_data):
+# --- КАРТИНКА ---
+def create_map_image(name, date_str, asc_info, planets_data, nodes_data):
     W, H = 750, 1150
     img = Image.new('RGB', (W, H), color='#fde2e4')
     draw = ImageDraw.Draw(img)
@@ -75,36 +77,41 @@ def create_final_image(name, date_str, asc_info, planets_data, nodes_data):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# --- ИНТЕРФЕЙС ---
+# --- САЙТ ---
 st.title("✨ Звёздный калькулятор ✨")
-user_name = st.text_input("Имя ребенка", value="Мой ребенок")
+name_val = st.text_input("Имя ребенка", value="Мишель")
 
 col1, col2 = st.columns(2)
 with col1:
-    d = st.date_input("Дата рождения", format="DD/MM/YYYY", min_value=datetime(1900, 1, 1))
-    t_in = st.text_input("Время (например: 14:30)", value="12:00")
+    country_in = st.selectbox("Страна (на английском)", 
+                             ["Israel", "Russia", "USA", "Germany", "France", "Ukraine", "Kazakhstan", "Other"])
+    if country_in == "Other":
+        country_in = st.text_input("Введите название страны на английском")
+    
+    city_in = st.text_input("Город на английском (например: Kazan)", value="Tel Aviv")
+
 with col2:
-    city_in = st.text_input("Город на английском (например: Tel Aviv)", value="Tel Aviv")
+    d = st.date_input("Дата рождения", format="DD/MM/YYYY", min_value=datetime(1900, 1, 1))
+    t_in = st.text_input("Время (ЧЧ:ММ)", value="12:00")
 
 if st.button("Рассчитать карту"):
     t_clean = re.sub(r'[^0-9:]', '', t_in).strip()[:5]
     try:
-        with st.spinner('Считываю энергию звезд...'):
-            loc = get_location_data(city_in)
+        with st.spinner('Связываюсь со звездами...'):
+            loc = get_location_pro(city_in, country_in)
             if loc:
-                tz_name = get_timezone_name(loc.latitude, loc.longitude)
+                tz_name = get_tz_pro(loc.latitude, loc.longitude)
                 timezone = pytz.timezone(tz_name)
                 
-                # Парсим время
+                # Математика
                 time_parts = t_clean.split(':')
                 dt = timezone.localize(datetime(d.year, d.month, d.day, int(time_parts[0]), int(time_parts[1])))
                 utc_dt = dt.astimezone(pytz.utc)
-                
                 jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour + utc_dt.minute/60)
                 cusps, ascmc = swe.houses(jd, loc.latitude, loc.longitude, b'P')
-                zodiac = ["Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева", "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"]
+                zod = ["Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева", "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"]
                 
-                def get_house_num(lon, c):
+                def get_h(lon, c):
                     for i in range(1, 12):
                         if c[i] < c[i+1]:
                             if c[i] <= lon < c[i+1]: return i
@@ -112,31 +119,30 @@ if st.button("Рассчитать карту"):
                             if lon >= c[i] or lon < c[i+1]: return i
                     return 12
 
-                asc_txt = f"Асцендент: {int(ascmc[0]%30)}° {zodiac[int(ascmc[0]/30)]}"
-                st.markdown(f'<div class="asc-card">🌟 {asc_txt}</div>', unsafe_allow_html=True)
+                asc_t = f"Асцендент: {int(ascmc[0]%30)}° {zod[int(ascmc[0]/30)]}"
+                st.markdown(f'<div class="asc-card">🌟 {asc_t}</div>', unsafe_allow_html=True)
 
-                p_list, n_list = [], []
-                # Планеты
+                p_res, n_res = [], []
                 for n, id in {"Солнце": 0, "Луна": 1, "Меркурий": 2, "Венера": 3, "Марс": 4, "Юпитер": 5, "Сатурн": 6}.items():
                     lon = swe.calc_ut(jd, id)[0][0]
-                    h = get_house_num(lon, cusps)
-                    p_list.append(f"{n}: {int(lon%30)}° {zodiac[int(lon/30)]} в {h} доме")
-                    st.markdown(f'<div class="result-card"><b>{p_list[-1]}</b></div>', unsafe_allow_html=True)
+                    h = get_h(lon, cusps)
+                    line = f"{n}: {int(lon%30)}° {zod[int(lon/30)]} в {h} доме"
+                    p_res.append(line)
+                    st.markdown(f'<div class="result-card"><b>{line}</b></div>', unsafe_allow_html=True)
 
-                # Узлы
                 rahu = swe.calc_ut(jd, swe.MEAN_NODE)[0][0]
-                rh = get_house_num(rahu, cusps)
-                n_list.append(f"Сев. Узел (Раху): {int(rahu%30)}° {zodiac[int(rahu/30)]} в {rh} доме")
+                rh = get_h(rahu, cusps)
+                n_res.append(f"Сев. Узел (Раху): {int(rahu%30)}° {zod[int(rahu/30)]} в {rh} доме")
                 ketu = (rahu + 180) % 360
                 kh = (rh + 6) % 12 or 12
-                n_list.append(f"Южн. Узел (Кету): {int(ketu%30)}° {zodiac[int(ketu/30)]} в {kh} доме")
+                n_res.append(f"Южн. Узел (Кету): {int(ketu%30)}° {zod[int(ketu/30)]} в {kh} доме")
                 
-                for item in n_list:
+                for item in n_res:
                     st.markdown(f'<div class="result-card" style="border-left-color: #a6817b;"><b>{item}</b></div>', unsafe_allow_html=True)
 
-                img_bin = create_final_image(user_name, d.strftime("%d.%m.%Y"), asc_txt, p_list, n_list)
-                st.download_button("📸 Скачать карту в галерею", img_bin, f"{user_name}_astro.png", "image/png")
+                img = create_map_image(name_val, d.strftime("%d.%m.%Y"), asc_t, p_res, n_res)
+                st.download_button("📸 Сохранить карту в галерею", img, f"{name_val}_astro.png", "image/png")
             else:
-                st.error("Город не найден. Проверьте написание на английском.")
+                st.error(f"Город '{city_in}' в стране '{country_in}' не найден. Попробуйте уточнить страну.")
     except Exception as e:
         st.error("Техническая ошибка. Пожалуйста, проверьте формат времени.")
