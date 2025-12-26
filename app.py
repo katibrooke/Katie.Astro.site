@@ -3,11 +3,11 @@ import swisseph as swe
 from datetime import datetime
 from geopy.geocoders import Nominatim
 
-# Твоя палитра: Шалфей (Sage) и Пыльная Роза (Dusty Rose)
+# Твоя палитра: Шалфей и Роза
 st.markdown("""
     <style>
-    .stApp { background-color: #fde2e4; } /* Нежный розовый фон */
-    h1, h2, h3 { color: #737b69; text-align: center; font-family: 'Arial'; } /* Шалфейный для заголовков */
+    .stApp { background-color: #fde2e4; }
+    h1, h2, h3 { color: #737b69; text-align: center; font-family: 'Arial'; }
     .stButton>button { 
         background-color: #a6817b; color: white; 
         border-radius: 20px; width: 100%; border: none; height: 3em;
@@ -18,30 +18,31 @@ st.markdown("""
         border-radius: 12px; border-left: 5px solid #9ba192;
         margin-bottom: 10px; color: #4a4a4a; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
     }
-    label { color: #737b69 !important; font-weight: bold; } /* Цвет подписей полей */
+    label { color: #737b69 !important; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# Твое финальное название
 st.title("✨ Звёздный калькулятор ✨")
 st.write("### Положение планет в карте вашего ребенка") 
 
-# Блок ввода данных
 col1, col2 = st.columns(2)
 with col1:
-    # Формат даты ДЕНЬ / МЕСЯЦ / ГОД
-    d = st.date_input("Дата рождения", format="DD/MM/YYYY")
+    # ИСПРАВЛЕННЫЙ КАЛЕНДАРЬ
+    d = st.date_input(
+        "Дата рождения", 
+        format="DD/MM/YYYY",
+        min_value=datetime(1900, 1, 1),
+        max_value=datetime(2100, 12, 31)
+    )
     t = st.time_input("Время рождения")
 with col2:
-    city = st.text_input("Город (на английском, например: Haifa)")
+    city = st.text_input("Город (на английском, например: Tel Aviv)")
 
 if st.button("Рассчитать"):
     try:
-        # Геолокация
         geolocator = Nominatim(user_agent="katy_astro_app")
         loc = geolocator.geocode(city)
         if loc:
-            # Математический расчет звездного времени
             jd = swe.julday(d.year, d.month, d.day, t.hour + t.minute/60)
             
             planets = {
@@ -69,6 +70,6 @@ if st.button("Рассчитать"):
             
             st.info("💡 Чтобы получить полную расшифровку карты и талантов вашего малыша, напишите мне в Директ!")
         else:
-            st.error("Город не найден. Напишите, пожалуйста, латиницей (например: Ashdod).")
+            st.error("Город не найден. Напишите, пожалуйста, латиницей.")
     except Exception as e:
         st.error("Ошибка в данных. Пожалуйста, попробуйте еще раз.")
