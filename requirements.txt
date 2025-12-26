@@ -1,6 +1,7 @@
 streamlit
 pyswisseph
-geopy
 timezonefinder
 pytz
 Pillow
+geonamescache
+
