@@ -5,12 +5,28 @@ import pytz
 import re
 from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
+from PIL import Image, ImageDraw, ImageFont
+import io
 
-# Красивое оформление (твоя палитра: шалфей и роза)
+# --- КЭШИРОВАНИЕ ДЛЯ УСКОРЕНИЯ ---
+@st.cache_data(ttl=3600)
+def get_location_data(city_name):
+    try:
+        geolocator = Nominatim(user_agent="katy_astro_pro_doula_v1")
+        return geolocator.geocode(city_name, timeout=30)
+    except:
+        return None
+
+@st.cache_data(ttl=3600)
+def get_timezone_name(lat, lon):
+    tf = TimezoneFinder()
+    return tf.timezone_at(lng=lon, lat=lat)
+
+# --- СТИЛИЗАЦИЯ САЙТА ---
 st.markdown("""
     <style>
     .stApp { background-color: #fde2e4; }
-    h1, h3 { color: #737b69; text-align: center; font-family: 'Arial'; }
+    h1, h3 { color: #737b69; text-align: center; font-family: 'Arial', sans-serif; }
     .stButton>button { 
         background-color: #a6817b; color: white; 
         border-radius: 20px; width: 100%; border: none; height: 3.5em; font-weight: bold;
@@ -18,104 +34,109 @@ st.markdown("""
     .result-card {
         background-color: #ffffff; padding: 15px;
         border-radius: 12px; border-left: 5px solid #9ba192;
-        margin-bottom: 10px; color: #4a4a4a; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+        margin-bottom: 10px; color: #4a4a4a;
     }
     .asc-card {
         background-color: #f0f2ed; padding: 15px;
-        border-radius: 12px; border: 2px solid #737b69;
-        margin-bottom: 20px; color: #737b69; text-align: center;
+        border-radius: 12px; border: 3px solid #737b69;
+        margin-bottom: 20px; color: #737b69; text-align: center; font-weight: bold;
     }
     label { color: #737b69 !important; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("✨ Звёздный калькулятор ✨")
-st.write("### Положение планет в карте вашего ребенка")
+# --- ФУНКЦИЯ СОЗДАНИЯ КАРТИНКИ (W=750) ---
+def create_final_image(name, date_str, asc_info, planets_data, nodes_data):
+    W, H = 750, 1150
+    img = Image.new('RGB', (W, H), color='#fde2e4')
+    draw = ImageDraw.Draw(img)
+    try:
+        f_title = ImageFont.truetype("DejaVuSans-Bold.ttf", 46)
+        f_sub = ImageFont.truetype("DejaVuSans.ttf", 26)
+        f_text = ImageFont.truetype("DejaVuSans.ttf", 28)
+        f_asc = ImageFont.truetype("DejaVuSans-Bold.ttf", 32)
+    except:
+        f_title = f_sub = f_text = f_asc = ImageFont.load_default()
 
-# Поля ввода
+    draw.text((W/2, 70), name, fill="#737b69", font=f_title, anchor="mm")
+    draw.text((W/2, 130), date_str, fill="#a6817b", font=f_title, anchor="mm")
+    draw.text((W/2, 190), "Расчет положения планет в натальной карте", fill="#737b69", font=f_sub, anchor="mm")
+    draw.rectangle([50, 250, W-50, 330], fill="#f0f2ed", outline="#737b69", width=4)
+    draw.text((W/2, 290), asc_info, fill="#737b69", font=f_asc, anchor="mm")
+    y = 370
+    for i, item in enumerate(planets_data + nodes_data):
+        color = "#9ba192" if i < len(planets_data) else "#a6817b"
+        draw.rectangle([50, y, W-50, y+65], fill="white")
+        draw.rectangle([50, y, 65, y+65], fill=color)
+        draw.text((80, y+18), item, fill="#4a4a4a", font=f_text)
+        y += 80
+    draw.text((W/2, H-50), "Создано в @katy.astro.kids", fill="#737b69", font=f_sub, anchor="mm")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+# --- ИНТЕРФЕЙС ---
+st.title("✨ Звёздный калькулятор ✨")
+user_name = st.text_input("Имя ребенка", value="Мой ребенок")
+
 col1, col2 = st.columns(2)
 with col1:
     d = st.date_input("Дата рождения", format="DD/MM/YYYY", min_value=datetime(1900, 1, 1))
-    t_input = st.text_input("Время (напишите, например: 22:22)", value="22:22")
+    t_in = st.text_input("Время (например: 14:30)", value="12:00")
 with col2:
-    city_input = st.text_input("Город на английском (например: Tel Aviv)", value="Tel Aviv")
+    city_in = st.text_input("Город на английском (например: Tel Aviv)", value="Tel Aviv")
 
 if st.button("Рассчитать карту"):
-    # Очистка времени от лишних знаков
-    clean_time = re.sub(r'[^0-9:]', '', t_input).strip()
-    if len(clean_time) > 5: clean_time = clean_time[:5]
-    
+    t_clean = re.sub(r'[^0-9:]', '', t_in).strip()[:5]
     try:
-        with st.spinner('Считываю энергию планет...'):
-            geolocator = Nominatim(user_agent="katy_astro_final_v3")
-            location = geolocator.geocode(city_input, timeout=15)
-            
-            if location:
-                tf = TimezoneFinder()
-                tz_name = tf.timezone_at(lng=location.longitude, lat=location.latitude)
+        with st.spinner('Считываю энергию звезд...'):
+            loc = get_location_data(city_in)
+            if loc:
+                tz_name = get_timezone_name(loc.latitude, loc.longitude)
                 timezone = pytz.timezone(tz_name)
                 
-                time_obj = datetime.strptime(clean_time, "%H:%M")
-                local_dt = timezone.localize(datetime(d.year, d.month, d.day, time_obj.hour, time_obj.minute))
-                utc_dt = local_dt.astimezone(pytz.utc)
+                # Парсим время
+                time_parts = t_clean.split(':')
+                dt = timezone.localize(datetime(d.year, d.month, d.day, int(time_parts[0]), int(time_parts[1])))
+                utc_dt = dt.astimezone(pytz.utc)
                 
                 jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour + utc_dt.minute/60)
-                cusps, ascmc = swe.houses(jd, location.latitude, location.longitude, b'P')
-                
+                cusps, ascmc = swe.houses(jd, loc.latitude, loc.longitude, b'P')
                 zodiac = ["Овен", "Телец", "Близнецы", "Рак", "Лев", "Дева", "Весы", "Скорпион", "Стрелец", "Козерог", "Водолей", "Рыбы"]
-
-                # 1. СНАЧАЛА АСЦЕНДЕНТ (Точка входа)
-                asc_lon = ascmc[0]
-                asc_sign = zodiac[int(asc_lon / 30)]
-                asc_deg = int(asc_lon % 30)
-                st.markdown(f"""<div class="asc-card">🌟 <b>Асцендент (Восходящий знак)</b>: {asc_deg}° {asc_sign}</div>""", unsafe_allow_html=True)
-
-                # 2. ЗАТЕМ ПЛАНЕТЫ
-                planets = {
-                    "Солнце": swe.SUN, "Луна": swe.MOON, "Меркурий": swe.MERCURY, 
-                    "Венера": swe.VENUS, "Марс": swe.MARS, "Юпитер": swe.JUPITER, "Сатурн": swe.SATURN
-                }
                 
-                for name, p_id in planets.items():
-                    res, flag = swe.calc_ut(jd, p_id)
-                    lon = res[0]
-                    sign_idx = int(lon / 30)
-                    deg = int(lon % 30)
-                    
-                    # Поиск дома
-                    p_house = 0
-                    for i in range(1, 13):
-                        c1, c2 = cusps[i], cusps[i+1] if i < 12 else cusps[1]
-                        if (c1 < c2 and c1 <= lon < c2) or (c1 > c2 and (lon >= c1 or lon < c2)):
-                            p_house = i; break
-                    
-                    st.markdown(f"""<div class="result-card"><b>{name}</b>: {deg}° {zodiac[sign_idx]} в {p_house} доме</div>""", unsafe_allow_html=True)
+                def get_house_num(lon, c):
+                    for i in range(1, 12):
+                        if c[i] < c[i+1]:
+                            if c[i] <= lon < c[i+1]: return i
+                        else:
+                            if lon >= c[i] or lon < c[i+1]: return i
+                    return 12
 
-                # 3. В КОНЦЕ УЗЛЫ (Кармический путь)
-                rahu_res, _ = swe.calc_ut(jd, swe.MEAN_NODE)
-                r_lon = rahu_res[0]
-                r_sign = zodiac[int(r_lon / 30)]
-                r_deg = int(r_lon % 30)
+                asc_txt = f"Асцендент: {int(ascmc[0]%30)}° {zodiac[int(ascmc[0]/30)]}"
+                st.markdown(f'<div class="asc-card">🌟 {asc_txt}</div>', unsafe_allow_html=True)
+
+                p_list, n_list = [], []
+                # Планеты
+                for n, id in {"Солнце": 0, "Луна": 1, "Меркурий": 2, "Венера": 3, "Марс": 4, "Юпитер": 5, "Сатурн": 6}.items():
+                    lon = swe.calc_ut(jd, id)[0][0]
+                    h = get_house_num(lon, cusps)
+                    p_list.append(f"{n}: {int(lon%30)}° {zodiac[int(lon/30)]} в {h} доме")
+                    st.markdown(f'<div class="result-card"><b>{p_list[-1]}</b></div>', unsafe_allow_html=True)
+
+                # Узлы
+                rahu = swe.calc_ut(jd, swe.MEAN_NODE)[0][0]
+                rh = get_house_num(rahu, cusps)
+                n_list.append(f"Сев. Узел (Раху): {int(rahu%30)}° {zodiac[int(rahu/30)]} в {rh} доме")
+                ketu = (rahu + 180) % 360
+                kh = (rh + 6) % 12 or 12
+                n_list.append(f"Южн. Узел (Кету): {int(ketu%30)}° {zodiac[int(ketu/30)]} в {kh} доме")
                 
-                # Дома для узлов
-                for i in range(1, 13):
-                    c1, c2 = cusps[i], cusps[i+1] if i < 12 else cusps[1]
-                    if (c1 < c2 and c1 <= r_lon < c2) or (c1 > c2 and (r_lon >= c1 or r_lon < c2)):
-                        r_house = i; break
+                for item in n_list:
+                    st.markdown(f'<div class="result-card" style="border-left-color: #a6817b;"><b>{item}</b></div>', unsafe_allow_html=True)
 
-                st.markdown(f"""<div class="result-card"><b>Северный Узел (Раху)</b>: {r_deg}° {r_sign} в {r_house} доме</div>""", unsafe_allow_html=True)
-
-                # Южный узел всегда напротив
-                k_lon = (r_lon + 180) % 360
-                k_sign = zodiac[int(k_lon / 30)]
-                k_deg = int(k_lon % 30)
-                k_house = (r_house + 6) % 12
-                if k_house == 0: k_house = 12
-                
-                st.markdown(f"""<div class="result-card"><b>Южный Узел (Кету)</b>: {k_deg}° {k_sign} в {k_house} доме</div>""", unsafe_allow_html=True)
-
-                st.info("💡 Это базовая карта. За подробным разбором талантов ребенка пишите мне в Директ!")
+                img_bin = create_final_image(user_name, d.strftime("%d.%m.%Y"), asc_txt, p_list, n_list)
+                st.download_button("📸 Скачать карту в галерею", img_bin, f"{user_name}_astro.png", "image/png")
             else:
-                st.error("Город не найден. Напишите, пожалуйста, на английском.")
+                st.error("Город не найден. Проверьте написание на английском.")
     except Exception as e:
-        st.error("Проверьте формат времени (например, 22:22).")
+        st.error("Техническая ошибка. Пожалуйста, проверьте формат времени.")
