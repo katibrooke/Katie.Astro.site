@@ -5,7 +5,7 @@ import pytz
 from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 
-# Стилизация в твоей палитре
+# Настройка эстетики (твоя палитра)
 st.markdown("""
     <style>
     .stApp { background-color: #fde2e4; }
@@ -46,8 +46,8 @@ if st.button("Рассчитать карту"):
             tz_name = tf.timezone_at(lng=location.longitude, lat=location.latitude)
             timezone = pytz.timezone(tz_name)
             
-            # Парсим введенное время (поддержка разных форматов: 22:22 или 22.22)
-            t_str = t_str.replace('.', ':')
+            # Очистка и проверка формата времени
+            t_str = t_str.strip().replace('.', ':').replace(' ', '')
             time_obj = datetime.strptime(t_str, "%H:%M")
             
             local_dt = timezone.localize(datetime(d.year, d.month, d.day, time_obj.hour, time_obj.minute))
@@ -57,6 +57,7 @@ if st.button("Рассчитать карту"):
             jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour + utc_dt.minute/60)
             
             # 3. Расчет Домов (Система Плацидус)
+            # В pyswisseph cusps возвращает 13 элементов, индекс 1-12 — это дома
             cusps, ascmc = swe.houses(jd, location.latitude, location.longitude, b'P')
             
             planets = {
@@ -68,9 +69,9 @@ if st.button("Рассчитать карту"):
             st.success(f"Расчет готов для {city}")
             
             for name, p_id in planets.items():
-                # Исправленная строка: берем только первый элемент кортежа (долготу)
-                res_tuple, flag = swe.calc_ut(jd, p_id)
-                lon = res_tuple[0]
+                # Исправлено: берем только первый элемент результата (долготу)
+                res_data, flag = swe.calc_ut(jd, p_id)
+                lon = res_data[0]
                 
                 sign_idx = int(lon / 30)
                 deg = int(lon % 30)
@@ -78,8 +79,9 @@ if st.button("Рассчитать карту"):
                 # Поиск дома планеты
                 p_house = 0
                 for i in range(1, 13):
-                    next_i = i + 1 if i < 12 else 1
-                    c1, c2 = cusps[i], cusps[next_i]
+                    c1 = cusps[i]
+                    c2 = cusps[i+1] if i < 12 else cusps[1]
+                    
                     if c1 < c2:
                         if c1 <= lon < c2: p_house = i; break
                     else: # Если дом пересекает 0° Овна
@@ -93,6 +95,8 @@ if st.button("Рассчитать карту"):
             
             st.info("💡 Это базовый расчет. За полной расшифровкой талантов и натальной карты пишите мне в Директ!")
         else:
-            st.error("Город не найден. Напишите название на английском (например: Haifa).")
+            st.error("Город не найден. Напишите название на английском (например: Tel Aviv).")
+    except ValueError:
+        st.error("Ошибка в формате времени. Напишите, например, 22:22")
     except Exception as e:
-        st.error(f"Проверьте формат времени (должно быть 22:22).")
+        st.error("Произошла ошибка при расчете. Попробуйте еще раз.")
