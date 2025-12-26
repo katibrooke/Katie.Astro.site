@@ -4,5 +4,5 @@ timezonefinder
 pytz
 Pillow
 geonamescache
-pycountry
+
 
