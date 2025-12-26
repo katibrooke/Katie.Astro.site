@@ -4,4 +4,6 @@ timezonefinder
 pytz
 Pillow
 geopy
+pycountry
+
 
