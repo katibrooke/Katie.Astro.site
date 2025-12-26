@@ -3,6 +3,5 @@ pyswisseph
 timezonefinder
 pytz
 Pillow
-geonamescache
-
+geopy
 
